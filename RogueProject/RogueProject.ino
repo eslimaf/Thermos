@@ -22,6 +22,9 @@ long previousMillis = 0;
 long lastSMSMillis = 0;
 float tempV = 0.0;
 
+byte GPRS_AT_Ready = 0;
+byte GPRS_Registered = 0;
+
 boolean isModemReady = false;
 
 //Read Modem Output
@@ -54,19 +57,19 @@ void ReadModemOutput(void) {
 void ParseAtCommand() {
  
 if( strstr(at_buffer, "+SIND: 8") != 0 ) {
-GPRS_registered = 0;
+GPRS_Registered = 0;
 Serial.println("GPRS Network Not Available");
 }
  
 if( strstr(at_buffer, "+SIND: 11") != 0 ) {
-GPRS_registered=1;
+GPRS_Registered=1;
 Serial.println("GPRS Registered");
-blinkLed(redLedPin,5,100);
+//blinkLed(redLedPin,5,100);
  
 }
  
 if( strstr(at_buffer, "+SIND: 4") != 0 ) {
-GPRS_AT_ready=1;
+GPRS_AT_Ready = 1;
 Serial.println("GPRS AT Ready");
 }
  
