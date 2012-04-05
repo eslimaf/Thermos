@@ -1,1 +1,3 @@
 .DS_Store
+tags
+mk_arduino_tags.sh

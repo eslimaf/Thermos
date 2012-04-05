@@ -1,7 +1,7 @@
 /**********************************************************************************
 * The MIT License
 * 
-* Copyright (c) 2004 - 2010 Paul D Turner & The CEGUI Development Team
+* Copyright (c) 2011 - 2012 Evandro Lima
 * 
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
 * this software and associated documentation files (the "Software"), to deal in
@@ -31,6 +31,11 @@
 #define REPORT_TIME 300000
 #define BUFFERSIZE 90
 
+#define DEBUG 0
+
+#define ACTION_REGISTER 0x01
+#define ACTION_CHECK_SIGNAL 0x02
+#define ACTION_SEND_SMS 0x03
 
 char at_buffer[BUFFERSIZE];
 int buffidx;
@@ -44,18 +49,23 @@ long previousMillis = 0;
 long lastSMSMillis = 0;
 float tempV = 0.0;
 
-byte GPRS_AT_Ready = 0;
+byte SMS_Ready = 0;
 byte GPRS_Registered = 0;
 
 boolean isModemReady = false;
+boolean needScreenRefresh = true;
 
-//Read Modem Output
+gText infoArea = gText(2,14,GLCD.Width-2,GLCD.Height-2);
+
+/**
+  Read Modem Output
+*/
 void ReadModemOutput(void) {
   char c;
   buffidx= 0; // start at begninning
   while (1) {
     if(modem.available() > 0) {
-      c=modem.read();
+      c = modem.read();
       if (c == -1) {
         at_buffer[buffidx] = '\0';
         return;
@@ -63,7 +73,6 @@ void ReadModemOutput(void) {
  
       if (c == '\n') {
         continue;
- 
       }
  
       if ((buffidx == BUFFERSIZE - 1) || (c == '\r')){
@@ -76,25 +85,38 @@ void ReadModemOutput(void) {
   }
 }
 
+/**
+  ParseAtCommand
+*/
 void ParseAtCommand() {
  
-if( strstr(at_buffer, "+SIND: 8") != 0 ) {
-GPRS_Registered = 0;
-Serial.println("GPRS Network Not Available");
+  if( strstr(at_buffer, "+SIND: 8") != 0 ) {
+    GPRS_Registered = 0;
+    infoArea.println("GPRS Network Not Available");
+  }
+
+  if( strstr(at_buffer, "+SIND: 11") != 0 ) {
+    GPRS_Registered=1;
+    infoArea.println("GPRS Registered");
+  }
+ 
+  if( strstr(at_buffer, "+SIND: 4") != 0 ) {
+    SMS_Ready = 1;
+    isModemReady = true;
+    infoArea.println("SMS is Ready");
+  }
 }
- 
-if( strstr(at_buffer, "+SIND: 11") != 0 ) {
-GPRS_Registered=1;
-Serial.println("GPRS Registered");
-//blinkLed(redLedPin,5,100);
- 
-}
- 
-if( strstr(at_buffer, "+SIND: 4") != 0 ) {
-GPRS_AT_Ready = 1;
-Serial.println("GPRS AT Ready");
-}
- 
+
+void SendATCommand(byte at_cmd){
+  switch(at_cmd){
+    //Register
+    case ACTION_REGISTER: break;
+    //Check signal strengh
+    case ACTION_CHECK_SIGNAL: break;
+    //Send SMS
+    case ACTION_SEND_SMS: break;
+
+  }
 }
 
 //Send SMS
@@ -114,14 +136,41 @@ void SendSMS(char *msg) {
   while(true){
     incoming_char = modem.read();
     if(incoming_char == 'O') {
-      GLCD.print(incoming_char);
+      infoArea.print(incoming_char);
       incoming_char = modem.read();
       if(incoming_char == 'K') {
-        GLCD.print(incoming_char);
+        infoArea.print(incoming_char);
         return;
       }
     }
   }
+  modem.println("AT+CMGS=1,4");
+}
+
+/**
+  Basic screen layout
+*/
+void RefreshScreen(){
+  //Print statusbar
+	GLCD.GotoXY(0,0);
+        //Print NETWORK AND SIGNAL
+	GLCD.print("TIM");
+  GLCD.DrawRect(20,5,1,1);
+  GLCD.DrawRect(23,4,1,2);
+  GLCD.DrawRect(26,3,1,3);
+  GLCD.DrawRect(29,2,1,4);
+  GLCD.DrawRect(32,1,1,5);
+  //Print Battery status
+  GLCD.DrawRect(109,3,1,2);
+  GLCD.DrawRect(112,1,1,6);
+  GLCD.DrawRect(115,1,1,6);
+  GLCD.DrawRect(118,1,1,6);
+  GLCD.DrawRect(121,1,1,6);
+  //Draw separator
+	GLCD.DrawHLine(0,9,GLCD.Width-1);
+  //Draw informations
+  //GlcdWriteInfo(info);
+	needScreenRefresh = false;
 }
 
 void setup()
@@ -130,7 +179,9 @@ void setup()
   modem.begin(9600);
   GLCD.Init();
   GLCD.SelectFont(System5x7);
-  GLCD.println("Starting SM5100B");
+  infoArea.SelectFont(System5x7);
+  infoArea.println("Starting SM5100B");
+  RefreshScreen();
 }
 
 void loop()
@@ -139,38 +190,43 @@ void loop()
   if(currentMillis - previousMillis > MEASURE_TEMP) {
     previousMillis = currentMillis;
     tempV = (5.0 * analogRead(termoPin) * 100.0) / 1024.0;
-    Serial.println(tempV);
+    if (DEBUG) Serial.println(tempV);
     if(isModemReady & (tempV > THRESHOLD)) {
       SendSMS("(Alert)");
-      GLCD.println("Alert Sending SMS");
+      infoArea.println("Alert Sending SMS");
     }
   }
-  
+
   if(isModemReady & (currentMillis - lastSMSMillis > REPORT_TIME)){
     lastSMSMillis = currentMillis;
     SendSMS("(Report)");
-    GLCD.println("Reporting...");
+    infoArea.println("Reporting...");
   }
   if(modem.available() > 0)
   {
     if(!isModemReady){
-      incoming_char=modem.read();
+      /*incoming_char=modem.read();
       if(incoming_char == '4') {
         isModemReady = true;
-        delay(1000);
       }
-      GLCD.print(incoming_char);
+      infoArea.print(incoming_char);*/
+      ReadModemOutput();
+      ParseAtCommand();
+
     }else{
       incoming_char=modem.read();
-      GLCD.print(incoming_char);
+      infoArea.print(incoming_char);
     }
   }
-  
+
   if(Serial.available() > 0)
   {
     incoming_char=Serial.read();
     if(isModemReady)
     modem.print(incoming_char);
+  }
+  if(needScreenRefresh){
+  //RefreshScreen("");
   }
 }
 
